@@ -3,7 +3,7 @@
 # Title:         Analyze Attacks
 # Description:   Advanced log analysis tool for web server attack detection
 # Author:        David Carrero Fernández-Baillo <dcarrero@stackscale.com>
-# Version:       0.8 beta (English)
+# Version:       0.9 beta (English)
 # Created:       JUNE 2025
 # License:       MIT License
 # =========================================================================
@@ -25,6 +25,15 @@ ERROR_LOG_PATH=""
 OUTPUT_FILE="analyze_attacks.log"
 SAVE_TO_FILE=false
 
+# Default error log candidates (ordered by preference)
+ERROR_LOG_CANDIDATES=(
+    "/home/*/logs/*error*.log"                  # RunCloud
+    "/var/www/vhosts/*/logs/error_log"          # Plesk
+    "/usr/local/apache/domlogs/*error_log*"      # cPanel
+    "/var/log/apache2/error.log"                # Apache2
+    "/var/log/nginx/error.log"                  # Nginx
+)
+
 shopt -s globstar nullglob 2>/dev/null
 trap 'echo -e "\n${RED}Interrupted by user. Exiting.${NC}"; exit 1' SIGINT
 
@@ -37,7 +46,7 @@ show_help() {
     printf "%b\n" "${GREEN}Advanced Web Server Security Log Analysis Tool${NC}"
     printf "%b\n" "${YELLOW}Author: David Carrero Fernández-Baillo${NC}"
     printf "%b\n" "${YELLOW}Website: https://carrero.es${NC}"
-    printf "%b\n" "${YELLOW}Version: 0.8 beta${NC}"
+    printf "%b\n" "${YELLOW}Version: 0.9 beta${NC}"
     printf "\n"
     printf "%b\n" "${GREEN}USAGE:${NC}"
     printf "%b\n" "  $0 [OPTIONS]"
@@ -47,7 +56,7 @@ show_help() {
     printf "%b\n" "  --minrequest <number>   Minimum requests (default: 20)"
     printf "%b\n" "  --hoursago <number>     Hours back to analyze (default: 24)"
     printf "%b\n" "  --logpath <path>        Custom access log path (use quotes if spaces)"
-    printf "%b\n" "  --errorlog <path>       Custom error_log path"
+    printf "%b\n" "  --errorlog <path>       Custom error_log path (wildcards supported)"
     printf "%b\n" "  --output <filename>     Output file"
     printf "%b\n" "  --save                  Save results to file"
     exit 0
@@ -82,6 +91,29 @@ get_time_filtered_logs() {
     printf '%s\n' "${filtered[@]}"
 }
 
+expand_error_logs() {
+    local globbed=()
+    local pattern="${ERROR_LOG_PATH:-}"
+    [[ -z "$pattern" ]] && return 1
+    while IFS= read -r -d '' file; do
+        [[ -f "$file" ]] && globbed+=("$file")
+    done < <(find $(eval echo "$pattern") -type f -print0 2>/dev/null)
+    printf '%s\n' "${globbed[@]}"
+}
+
+autodetect_error_log_path() {
+    for candidate in "${ERROR_LOG_CANDIDATES[@]}"; do
+        local found=()
+        while IFS= read -r -d '' f; do found+=("$f"); done < <(find $(eval echo "$candidate") -type f -print0 2>/dev/null)
+        if [[ ${#found[@]} -gt 0 ]]; then
+            ERROR_LOG_PATH="$candidate"
+            return 0
+        fi
+    done
+    ERROR_LOG_PATH=""
+    return 1
+}
+
 show_menu() {
     clear
     echo -e "${CYAN}================================="
@@ -93,18 +125,22 @@ show_menu() {
     echo -e "Access log path: ${CYAN}${LOG_PATH}${NC}"
     if [[ "$ERROR_LOG_PATH" != "" ]]; then
         echo -e "Error log path: ${CYAN}${ERROR_LOG_PATH}${NC}"
+        local errorlog_count=0
+        local error_logs=()
+        while IFS= read -r f; do error_logs+=("$f"); done < <(expand_error_logs)
+        errorlog_count="${#error_logs[@]}"
+        echo -e "Error log files found: ${GREEN}${errorlog_count}${NC}"
     fi
     if [[ "$SAVE_TO_FILE" == true ]]; then
         echo -e "Save to file: ${GREEN}ENABLED${NC} → ${CYAN}$OUTPUT_FILE${NC}"
     else
         echo -e "Save to file: ${RED}DISABLED${NC}"
     fi
-
     local log_count=0
     local logs_array=()
     while IFS= read -r log; do logs_array+=("$log"); done < <(expand_logs)
     log_count="${#logs_array[@]}"
-    echo -e "Log files found: ${GREEN}${log_count}${NC}"
+    echo -e "Access log files found: ${GREEN}${log_count}${NC}"
     echo
     echo -e "${GREEN}Select an option:${NC}"
     echo -e "1. Top active IPs"
@@ -140,8 +176,8 @@ change_log_path() {
     read -r choice
     case $choice in
         1) LOG_PATH="/home/*/logs/*access*.log" ;;
-        2) LOG_PATH="/var/www/vhosts/*/logs/access*_log*" ;;  # Plesk
-        3) LOG_PATH="/usr/local/apache/domlogs/*access_log*" ;; # cPanel
+        2) LOG_PATH="/var/www/vhosts/*/logs/access*_log*" ;;
+        3) LOG_PATH="/usr/local/apache/domlogs/*access_log*" ;;
         4) LOG_PATH="/var/log/apache2/*access*.log" ;;
         5) LOG_PATH="/var/log/nginx/*access*.log" ;;
         6)
@@ -158,44 +194,31 @@ change_log_path() {
 change_error_log_path() {
     echo -e "\n${CYAN}=== CHANGE ERROR LOG PATH ===${NC}"
     echo -e "${YELLOW}Current: ${GREEN}${ERROR_LOG_PATH:-unset}${NC}\n"
-    echo -n -e "${YELLOW}Enter error_log path: ${NC}"
-    read -r new_errlog
-    if [[ -f "$new_errlog" ]]; then
-        ERROR_LOG_PATH="$new_errlog"
-        echo -e "${GREEN}error_log path set to: $ERROR_LOG_PATH${NC}"
-    else
-        echo -e "${RED}File not found: $new_errlog${NC}"
-    fi
-    sleep 1
-}
-
-toggle_file_saving() {
-    echo -e "\n${CYAN}=== FILE SAVING OPTIONS ===${NC}"
-    echo -e "${YELLOW}Current status:${NC}"
-    if [[ "$SAVE_TO_FILE" == true ]]; then
-        echo -e "  Save to file: ${GREEN}ENABLED${NC}"
-    else
-        echo -e "  Save to file: ${RED}DISABLED${NC}"
-    fi
-    echo -e "  Output file: ${CYAN}$OUTPUT_FILE${NC}"
-    echo -e "\n${GREEN}Options:${NC}"
-    echo -e "1. Toggle saving on/off"
-    echo -e "2. Change output filename"
-    echo -e "3. Keep current settings"
+    echo -e "${GREEN}Select an error log path option:${NC}"
+    echo -e "1. RunCloud:      /home/*/logs/*error*.log"
+    echo -e "2. Plesk:         /var/www/vhosts/*/logs/error_log"
+    echo -e "3. cPanel:        /usr/local/apache/domlogs/*error_log*"
+    echo -e "4. Apache2:       /var/log/apache2/error.log"
+    echo -e "5. Nginx:         /var/log/nginx/error.log"
+    echo -e "6. Custom path"
+    echo -e "7. Keep current"
     echo
-    echo -n -e "${YELLOW}Select option 1-3: ${NC}"
+    echo -n -e "${YELLOW}Select option 1-7: ${NC}"
     read -r choice
     case $choice in
-        1)
-            SAVE_TO_FILE=$([ "$SAVE_TO_FILE" == true ] && echo false || echo true)
-            ;;
-        2)
-            echo -n -e "${YELLOW}Enter new filename: ${NC}"
-            read -r new_filename
-            [[ -n "$new_filename" ]] && OUTPUT_FILE="$new_filename"
+        1) ERROR_LOG_PATH="/home/*/logs/*error*.log" ;;
+        2) ERROR_LOG_PATH="/var/www/vhosts/*/logs/error_log" ;;
+        3) ERROR_LOG_PATH="/usr/local/apache/domlogs/*error_log*" ;;
+        4) ERROR_LOG_PATH="/var/log/apache2/error.log" ;;
+        5) ERROR_LOG_PATH="/var/log/nginx/error.log" ;;
+        6)
+            echo -n -e "${YELLOW}Enter custom error log path: ${NC}"
+            read -r custom_path
+            [[ -n "$custom_path" ]] && ERROR_LOG_PATH="$custom_path"
             ;;
         *) ;;
     esac
+    echo -e "${GREEN}Current error_log path: ${CYAN}$ERROR_LOG_PATH${NC}"
     sleep 1
 }
 
@@ -374,7 +397,7 @@ analyze_injection_attempts() {
         return
     fi
     echo -e "\n${CYAN}=== INJECTION ATTEMPTS ===${NC}"
-    echo -e "${YELLOW}IP                Requests   Path${NC}"
+    echo -e "${YELLOW}IP                Requests   Example Path${NC}"
     echo    "----------------------------------------------------------------------------"
     local results
     results=$(grep -aiE "union|select|script|javascript|eval" "${logs[@]}" 2>/dev/null |
@@ -398,52 +421,50 @@ analyze_injection_attempts() {
     echo -e "\n${GREEN}Analysis completed${NC}"
 }
 
-analyze_activity()               { analyze_top_ips; }
+analyze_activity() { analyze_top_ips; }
 
 analyze_error_log() {
     echo -e "\n${CYAN}=== ERROR LOG ANALYSIS ===${NC}"
-    if [[ -z "$ERROR_LOG_PATH" ]]; then
-        echo -e "${YELLOW}No error_log path defined. Set it in the menu or with --errorlog <path>.${NC}"
+    local error_logs=()
+    while IFS= read -r f; do error_logs+=("$f"); done < <(expand_error_logs)
+    if [[ ${#error_logs[@]} -eq 0 ]]; then
+        echo -e "${RED}No error log files found for analysis.${NC}"
         return
     fi
-    if [[ ! -f $ERROR_LOG_PATH ]]; then
-        echo -e "${RED}Error log file not found: $ERROR_LOG_PATH${NC}"
-        return
-    fi
-
-    echo -e "${YELLOW}Top 10 error messages:${NC}"
-    if grep -q '^\[' "$ERROR_LOG_PATH"; then
-        # Apache/Plesk/cPanel style
-        awk -F'[][:]' '
-            {
-                type = $5;
-                sub(/^[ ]+/, "", type);
-                msg = $0;
-                sub(/^\[[^]]+\] \[[^]]+\] \[[^]]+\] /, "", msg);
-                count[type "|" msg]++;
-            }
-            END {
-                for (k in count)
-                    print count[k], k
-            }
-        ' "$ERROR_LOG_PATH" | sort -nr | head -10 | awk -F'|' '{printf "%-5s %-20s %s\n", $1, $2, $3}'
-    else
-        # RunCloud/OpenLiteSpeed style
-        awk '
-            match($0, /\[(ERROR|WARN|NOTICE|INFO)\]/, m) {
-                type = m[1];
-                msg = $0;
-                sub(/^[0-9\-\:\. \[\]]+/, "", msg);
-                gsub(/\[[^]]*\]/, "", msg);
-                sub(/^[ ]+/, "", msg);
-                count[type "|" msg]++;
-            }
-            END {
-                for (k in count)
-                    print count[k], k
-            }
-        ' "$ERROR_LOG_PATH" | sort -nr | head -10 | awk -F'|' '{printf "%-5s %-8s %s\n", $1, $2, $3}'
-    fi
+    echo -e "${YELLOW}Top 10 error messages (all error logs):${NC}"
+    for errfile in "${error_logs[@]}"; do
+        echo -e "${CYAN}File: $errfile${NC}"
+        if grep -q '^\[' "$errfile"; then
+            awk -F'[][:]' '
+                {
+                    type = $5;
+                    sub(/^[ ]+/, "", type);
+                    msg = $0;
+                    sub(/^\[[^]]+\] \[[^]]+\] \[[^]]+\] /, "", msg);
+                    count[type "|" msg]++;
+                }
+                END {
+                    for (k in count)
+                        print count[k], k
+                }
+            ' "$errfile" | sort -nr | head -10 | awk -F'|' '{printf "%-5s %-20s %s\n", $1, $2, $3}'
+        else
+            awk '
+                match($0, /\[(ERROR|WARN|NOTICE|INFO)\]/, m) {
+                    type = m[1];
+                    msg = $0;
+                    sub(/^[0-9\-\:\. \[\]]+/, "", msg);
+                    gsub(/\[[^]]*\]/, "", msg);
+                    sub(/^[ ]+/, "", msg);
+                    count[type "|" msg]++;
+                }
+                END {
+                    for (k in count)
+                        print count[k], k
+                }
+            ' "$errfile" | sort -nr | head -10 | awk -F'|' '{printf "%-5s %-8s %s\n", $1, $2, $3}'
+        fi
+    done
     echo -e "${GREEN}Analysis completed${NC}"
 }
 
@@ -455,10 +476,40 @@ analyze_all() {
     analyze_404_errors
     analyze_403_errors
     analyze_injection_attempts
-    if [[ -n "$ERROR_LOG_PATH" && -f "$ERROR_LOG_PATH" ]]; then
+    if [[ -n "$ERROR_LOG_PATH" ]]; then
         analyze_error_log
     fi
     echo -e "\n${RED}=== ANALYSIS FINISHED ===${NC}"
+}
+
+toggle_file_saving() {
+    echo -e "\n${CYAN}=== FILE SAVING OPTIONS ===${NC}"
+    echo -e "${YELLOW}Current status:${NC}"
+    if [[ "$SAVE_TO_FILE" == true ]]; then
+        echo -e "  Save to file: ${GREEN}ENABLED${NC}"
+    else
+        echo -e "  Save to file: ${RED}DISABLED${NC}"
+    fi
+    echo -e "  Output file: ${CYAN}$OUTPUT_FILE${NC}"
+    echo -e "\n${GREEN}Options:${NC}"
+    echo -e "1. Toggle saving on/off"
+    echo -e "2. Change output filename"
+    echo -e "3. Keep current settings"
+    echo
+    echo -n -e "${YELLOW}Select option 1-3: ${NC}"
+    read -r choice
+    case $choice in
+        1)
+            SAVE_TO_FILE=$([ "$SAVE_TO_FILE" == true ] && echo false || echo true)
+            ;;
+        2)
+            echo -n -e "${YELLOW}Enter new filename: ${NC}"
+            read -r new_filename
+            [[ -n "$new_filename" ]] && OUTPUT_FILE="$new_filename"
+            ;;
+        *) ;;
+    esac
+    sleep 1
 }
 
 # ---- Argument Parsing ----
@@ -479,6 +530,11 @@ if [[ $# -gt 0 ]]; then
             *) echo -e "${RED}Unknown option: $1${NC}"; echo "Use --help for usage information."; exit 1 ;;
         esac
     done
+fi
+
+# Autodetect error_log path if unset
+if [[ -z "$ERROR_LOG_PATH" ]]; then
+    autodetect_error_log_path
 fi
 
 # ---- Main Loop ----
