@@ -434,36 +434,32 @@ analyze_error_log() {
     echo -e "${YELLOW}Top 10 error messages (all error logs):${NC}"
     for errfile in "${error_logs[@]}"; do
         echo -e "${CYAN}File: $errfile${NC}"
-        if grep -q '^\[' "$errfile"; then
-            awk -F'[][:]' '
-                {
-                    type = $5;
-                    sub(/^[ ]+/, "", type);
-                    msg = $0;
-                    sub(/^\[[^]]+\] \[[^]]+\] \[[^]]+\] /, "", msg);
-                    count[type "|" msg]++;
-                }
-                END {
-                    for (k in count)
-                        print count[k], k
-                }
-            ' "$errfile" | sort -nr | head -10 | awk -F'|' '{printf "%-5s %-20s %s\n", $1, $2, $3}'
-        else
-            awk '
-                match($0, /\[(ERROR|WARN|NOTICE|INFO)\]/, m) {
-                    type = m[1];
-                    msg = $0;
-                    sub(/^[0-9\-\:\. \[\]]+/, "", msg);
-                    gsub(/\[[^]]*\]/, "", msg);
-                    sub(/^[ ]+/, "", msg);
-                    count[type "|" msg]++;
-                }
-                END {
-                    for (k in count)
-                        print count[k], k
-                }
-            ' "$errfile" | sort -nr | head -10 | awk -F'|' '{printf "%-5s %-8s %s\n", $1, $2, $3}'
-        fi
+        # Unifica los formatos de error para Apache, Nginx, OpenLiteSpeed, etc.
+        awk '
+        {
+            level="INFO";
+            msg = $0;
+            # Busca niveles conocidos
+            if (match($0, /\[([A-Z]+)\]/, m)) {
+                level=m[1];
+            } else if (match($0, /[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:.\[\]]+ \[([A-Z]+)\]/, m)) {
+                level=m[1];
+            }
+            # Limpia timestamps y pid si existen
+            gsub(/^\[[^]]+\] ?/, "", msg);      # [fecha] 
+            gsub(/^\[[^]]+\] ?/, "", msg);      # [modulo]
+            gsub(/^\[[^]]+\] ?/, "", msg);      # [pid]
+            gsub(/\[[^]]*\]/, "", msg);         # Cualquier resto [xxx]
+            sub(/^[ \-:0-9\.]+/, "", msg);      # Espacios, números, guiones
+            gsub(/[ \t]+$/, "", msg);
+            if (length(msg)>5) {
+                count[level "|" msg]++
+            }
+        }
+        END {
+            for (k in count) print count[k], k
+        }
+        ' "$errfile" | sort -nr | head -10 | awk -F'|' '{printf "%-5s %-8s %s\n", $1, $2, $3}'
     done
     echo -e "${GREEN}Analysis completed${NC}"
 }
