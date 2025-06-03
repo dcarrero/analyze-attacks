@@ -3,7 +3,7 @@
 # Title:         Analyze Attacks
 # Description:   Advanced log analysis tool for web server attack detection
 # Author:        David Carrero Fernández-Baillo <dcarrero@stackscale.com>
-# Version:       0.9 beta (English)
+# Version:       0.91 beta (English)
 # Created:       JUNE 2025
 # License:       MIT License
 # =========================================================================
