@@ -3,7 +3,7 @@
 # Title:         Analyze Attacks
 # Description:   Advanced log analysis tool for web server attack detection
 # Author:        David Carrero Fernández-Baillo <dcarrero@stackscale.com>
-# Version:       0.7 beta (English)
+# Version:       0.8 beta (English)
 # Created:       JUNE 2025
 # License:       MIT License
 # =========================================================================
@@ -37,7 +37,7 @@ show_help() {
     printf "%b\n" "${GREEN}Advanced Web Server Security Log Analysis Tool${NC}"
     printf "%b\n" "${YELLOW}Author: David Carrero Fernández-Baillo${NC}"
     printf "%b\n" "${YELLOW}Website: https://carrero.es${NC}"
-    printf "%b\n" "${YELLOW}Version: 0.7 beta${NC}"
+    printf "%b\n" "${YELLOW}Version: 0.8 beta${NC}"
     printf "\n"
     printf "%b\n" "${GREEN}USAGE:${NC}"
     printf "%b\n" "  $0 [OPTIONS]"
@@ -311,17 +311,23 @@ analyze_404_errors() {
         echo -e "${RED}No log files found for analysis.${NC}"
         return
     fi
-    echo -e "\n${CYAN}=== 404 ERRORS (by IP, Path) ===${NC}"
-    echo -e "${YELLOW}IP                Requests   Path${NC}"
+    echo -e "\n${CYAN}=== 404 ERRORS (by IP) ===${NC}"
+    echo -e "${YELLOW}IP                Requests   Unique URLs   Example URL${NC}"
     echo    "----------------------------------------------------------------------------"
     local results
     results=$(awk '
-        $9 == 404 { ip=$1; req=$7; count[ip "|" req]++ }
+        $9 == 404 && $1 ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ {
+            ip = $1
+            url = $7
+            count[ip]++
+            if (!(ip in example_url)) example_url[ip] = url
+            unique_url[ip][url] = 1
+        }
         END {
-            for (k in count)
-                if (count[k] >= ENVIRON["MIN_THRESHOLD"]) {
-                    split(k, b, "|")
-                    printf "%-18s %7d   %s\n", b[1], count[k], b[2]
+            for (ip in count)
+                if (count[ip] >= ENVIRON["MIN_THRESHOLD"]) {
+                    n_url = length(unique_url[ip])
+                    printf "%-18s %7d   %11d   %s\n", ip, count[ip], n_url, example_url[ip]
                 }
         }' "${logs[@]}" | sort -k2 -nr)
     [[ -z "$results" ]] && results="No data found."
@@ -336,17 +342,23 @@ analyze_403_errors() {
         echo -e "${RED}No log files found for analysis.${NC}"
         return
     fi
-    echo -e "\n${CYAN}=== 403 ERRORS (by IP, Path) ===${NC}"
-    echo -e "${YELLOW}IP                Requests   Path${NC}"
+    echo -e "\n${CYAN}=== 403 ERRORS (by IP) ===${NC}"
+    echo -e "${YELLOW}IP                Requests   Unique URLs   Example URL${NC}"
     echo    "----------------------------------------------------------------------------"
     local results
     results=$(awk '
-        $9 == 403 { ip=$1; req=$7; count[ip "|" req]++ }
+        $9 == 403 && $1 ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ {
+            ip = $1
+            url = $7
+            count[ip]++
+            if (!(ip in example_url)) example_url[ip] = url
+            unique_url[ip][url] = 1
+        }
         END {
-            for (k in count)
-                if (count[k] >= ENVIRON["MIN_THRESHOLD"]) {
-                    split(k, b, "|")
-                    printf "%-18s %7d   %s\n", b[1], count[k], b[2]
+            for (ip in count)
+                if (count[ip] >= ENVIRON["MIN_THRESHOLD"]) {
+                    n_url = length(unique_url[ip])
+                    printf "%-18s %7d   %11d   %s\n", ip, count[ip], n_url, example_url[ip]
                 }
         }' "${logs[@]}" | sort -k2 -nr)
     [[ -z "$results" ]] && results="No data found."
