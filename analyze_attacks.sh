@@ -3,17 +3,17 @@
 # Title:         Analyze Attacks (Consistent & Robust)
 # Description:   Advanced log analysis tool for web server attack detection
 # Author:        David Carrero Fernández-Baillo <dcarrero@stackscale.com>
-# Version:       0.4 beta (English)
+# Version:       0.5 beta (English)
 # Created:       JUNE 3, 2025
 # License:       MIT License
 # =========================================================================
 
 # --- Colors ---
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-NC='\033[0m'
+CYAN=$'\e[0;36m'
+GREEN=$'\e[0;32m'
+YELLOW=$'\e[1;33m'
+RED=$'\e[0;31m'
+NC=$'\e[0m'
 
 # --- Defaults ---
 MIN_THRESHOLD=20
