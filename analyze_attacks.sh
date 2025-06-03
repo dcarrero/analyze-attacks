@@ -3,7 +3,7 @@
 # Title:         Analyze Attacks
 # Description:   Advanced log analysis tool for web server attack detection
 # Author:        David Carrero Fernández-Baillo <dcarrero@stackscale.com>
-# Version:       0.6 beta (English)
+# Version:       0.7 beta (English)
 # Created:       JUNE 2025
 # License:       MIT License
 # =========================================================================
@@ -21,6 +21,7 @@ NC=$'\e[0m'
 MIN_THRESHOLD=20
 TIME_HOURS=24
 LOG_PATH="/home/*/logs/*access*.log"
+ERROR_LOG_PATH=""
 OUTPUT_FILE="analyze_attacks.log"
 SAVE_TO_FILE=false
 
@@ -36,7 +37,7 @@ show_help() {
     printf "%b\n" "${GREEN}Advanced Web Server Security Log Analysis Tool${NC}"
     printf "%b\n" "${YELLOW}Author: David Carrero Fernández-Baillo${NC}"
     printf "%b\n" "${YELLOW}Website: https://carrero.es${NC}"
-    printf "%b\n" "${YELLOW}Version: 0.6 beta${NC}"
+    printf "%b\n" "${YELLOW}Version: 0.7 beta${NC}"
     printf "\n"
     printf "%b\n" "${GREEN}USAGE:${NC}"
     printf "%b\n" "  $0 [OPTIONS]"
@@ -45,7 +46,8 @@ show_help() {
     printf "%b\n" "  --help, -h              Show this help message"
     printf "%b\n" "  --minrequest <number>   Minimum requests (default: 20)"
     printf "%b\n" "  --hoursago <number>     Hours back to analyze (default: 24)"
-    printf "%b\n" "  --logpath <path>        Custom log path (use quotes if spaces)"
+    printf "%b\n" "  --logpath <path>        Custom access log path (use quotes if spaces)"
+    printf "%b\n" "  --errorlog <path>       Custom error_log path"
     printf "%b\n" "  --output <filename>     Output file"
     printf "%b\n" "  --save                  Save results to file"
     exit 0
@@ -88,7 +90,10 @@ show_menu() {
     echo -e "Date: ${YELLOW}$(date)${NC}"
     echo -e "Attack threshold: ${GREEN}${MIN_THRESHOLD}${NC} requests"
     echo -e "Time window: ${GREEN}${TIME_HOURS}${NC} hours"
-    echo -e "Log path: ${CYAN}${LOG_PATH}${NC}"
+    echo -e "Access log path: ${CYAN}${LOG_PATH}${NC}"
+    if [[ "$ERROR_LOG_PATH" != "" ]]; then
+        echo -e "Error log path: ${CYAN}${ERROR_LOG_PATH}${NC}"
+    fi
     if [[ "$SAVE_TO_FILE" == true ]]; then
         echo -e "Save to file: ${GREEN}ENABLED${NC} → ${CYAN}$OUTPUT_FILE${NC}"
     else
@@ -110,7 +115,9 @@ show_menu() {
     echo -e "6. SQL Injection/XSS attempts"
     echo -e "7. Activity in time window"
     echo -e "8. Complete analysis"
-    echo -e "${YELLOW}r/R${NC} Change log path"
+    echo -e "9. Analyze error_log"
+    echo -e "${YELLOW}r/R${NC} Change access log path"
+    echo -e "${YELLOW}e/E${NC} Change error_log path"
     echo -e "${YELLOW}s/S${NC} File saving options"
     echo -e "${RED}0/x/q${NC} Exit"
     echo
@@ -118,12 +125,12 @@ show_menu() {
 }
 
 change_log_path() {
-    echo -e "\n${CYAN}=== CHANGE LOG PATH ===${NC}"
+    echo -e "\n${CYAN}=== CHANGE ACCESS LOG PATH ===${NC}"
     echo -e "${YELLOW}Current: ${GREEN}$LOG_PATH${NC}\n"
     echo -e "${GREEN}Select a log path option:${NC}"
     echo -e "1. RunCloud:      /home/*/logs/*access*.log"
     echo -e "2. Plesk:         /var/www/vhosts/*/logs/access*_log*"
-    echo -e "3. cPanel:        /usr/local/apache/domlogs/*"
+    echo -e "3. cPanel:        /usr/local/apache/domlogs/*access_log*"
     echo -e "4. Apache2:       /var/log/apache2/*access*.log"
     echo -e "5. Nginx:         /var/log/nginx/*access*.log"
     echo -e "6. Custom path"
@@ -133,8 +140,8 @@ change_log_path() {
     read -r choice
     case $choice in
         1) LOG_PATH="/home/*/logs/*access*.log" ;;
-        2) LOG_PATH="/var/www/vhosts/*/logs/access*_log*" ;;  # Plesk: .processed, .webstat, ssl...
-        3) LOG_PATH="/usr/local/apache/domlogs/*" ;;
+        2) LOG_PATH="/var/www/vhosts/*/logs/access*_log*" ;;  # Plesk
+        3) LOG_PATH="/usr/local/apache/domlogs/*access_log*" ;; # cPanel
         4) LOG_PATH="/var/log/apache2/*access*.log" ;;
         5) LOG_PATH="/var/log/nginx/*access*.log" ;;
         6)
@@ -145,6 +152,20 @@ change_log_path() {
         *) ;;
     esac
     echo -e "${GREEN}Current log path: ${CYAN}$LOG_PATH${NC}"
+    sleep 1
+}
+
+change_error_log_path() {
+    echo -e "\n${CYAN}=== CHANGE ERROR LOG PATH ===${NC}"
+    echo -e "${YELLOW}Current: ${GREEN}${ERROR_LOG_PATH:-unset}${NC}\n"
+    echo -n -e "${YELLOW}Enter error_log path: ${NC}"
+    read -r new_errlog
+    if [[ -f "$new_errlog" ]]; then
+        ERROR_LOG_PATH="$new_errlog"
+        echo -e "${GREEN}error_log path set to: $ERROR_LOG_PATH${NC}"
+    else
+        echo -e "${RED}File not found: $new_errlog${NC}"
+    fi
     sleep 1
 }
 
@@ -178,55 +199,38 @@ toggle_file_saving() {
     sleep 1
 }
 
-analyze_ips_by_pattern() {
-    local pattern="$1"
-    local label="$2"
-    local status="$3"   # status code to filter, may be empty
-
+analyze_top_ips() {
     mapfile -t logs < <(get_time_filtered_logs "$TIME_HOURS")
     if [[ ${#logs[@]} -eq 0 ]]; then
         echo -e "${RED}No log files found for analysis.${NC}"
         return
     fi
-    echo -e "\n${CYAN}=== $label ===${NC}"
-    echo -e "${YELLOW}User             IP Address                        Requests${NC}"
-    echo    "-----------------------------------------------------------"
-
+    echo -e "\n${CYAN}=== TOP ACTIVE IPs ===${NC}"
+    echo -e "${YELLOW}IP                Requests   Example User-Agent${NC}"
+    echo    "----------------------------------------------------------------------------"
     local results
-    if [[ -z "$pattern" && -z "$status" ]]; then
-        results=$(awk -v threshold="$MIN_THRESHOLD" '
-        { split(FILENAME, parts, "/"); user=parts[3]; ip=$1; cnt[user "|" ip]++ }
-        END { for (k in cnt) { if(cnt[k]>=threshold){split(k,a,"|"); printf "%-15s %-32s %d\n",a[1],a[2],cnt[k]} } }' "${logs[@]}" | sort -k3 -nr | head -15)
-    else
-        grep_opts=()
-        [[ -n "$pattern" ]] && grep_opts+=(-iE "$pattern")
-        results=$(grep "${grep_opts[@]}" "${logs[@]}" 2>/dev/null | awk -v threshold="$MIN_THRESHOLD" -v status="$status" '
+    results=$(awk -F'"' '
         {
-            split(FILENAME, parts, "/")
-            user=(length(parts)>3)?parts[3]:"unknown"
-            ip=$1
-            if (status=="" || $9==status) cnt[user "|" ip]++
+            split($1, a, " ")
+            ip = a[1]
+            ua = $6
+            if (ua == "" || ua ~ /^ *$/) ua = "-"
+            if (ip ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/)
+                count[ip "|" ua]++
         }
         END {
-            for (k in cnt) {
-                if (cnt[k] >= threshold) {
-                    split(k, a, "|")
-                    printf "%-15s %-32s %d\n", a[1], a[2], cnt[k]
+            for (k in count)
+                if (count[k] >= ENVIRON["MIN_THRESHOLD"]) {
+                    split(k, b, "|")
+                    printf "%-18s %7d   %s\n", b[1], count[k], b[2]
                 }
-            }
-        }' | sort -k3 -nr)
-    fi
+        }
+    ' "${logs[@]}" | sort -k2 -nr | head -20)
     [[ -z "$results" ]] && results="No data found."
     echo "$results"
-    save_output "=== $label ===\n$results\n"
+    save_output "=== TOP ACTIVE IPs ===\n$results\n"
     echo -e "\n${GREEN}Analysis completed${NC}"
 }
-
-analyze_top_ips()                { analyze_ips_by_pattern "" "TOP ACTIVE IPs"; }
-analyze_404_errors()             { analyze_ips_by_pattern "" "404 ERRORS" "404"; }
-analyze_403_errors()             { analyze_ips_by_pattern "" "403 ERRORS" "403"; }
-analyze_injection_attempts()     { analyze_ips_by_pattern "union|select|script|javascript|eval" "INJECTION ATTEMPTS"; }
-analyze_activity()               { analyze_top_ips; }
 
 analyze_malicious_bots() {
     mapfile -t logs < <(get_time_filtered_logs "$TIME_HOURS")
@@ -234,23 +238,26 @@ analyze_malicious_bots() {
         echo -e "${RED}No log files found for analysis.${NC}"
         return
     fi
-    echo -e "\n${CYAN}=== MALICIOUS BOTS (by User-Agent) ===${NC}"
-    echo -e "${YELLOW}User-Agent                                 Requests   Example IP${NC}"
-    echo    "--------------------------------------------------------------------------"
+    echo -e "\n${CYAN}=== MALICIOUS BOTS (by IP and User-Agent) ===${NC}"
+    echo -e "${YELLOW}IP                Requests   User-Agent${NC}"
+    echo    "----------------------------------------------------------------------------"
     local results
     results=$(grep -aiE "scrapy|python|curl|wget|bot" "${logs[@]}" 2>/dev/null |
         awk -F'"' -v threshold="$MIN_THRESHOLD" '
         {
+            split($1, a, " ")
+            ip = a[1]
             ua = $6
-            split($1, fields, " ")
-            ip = fields[1]
-            count[ua]++
-            exampleip[ua]=ip
+            if (ua == "" || ua ~ /^ *$/) ua = "-"
+            key = ip "|" ua
+            count[key]++
         }
         END {
-            for (ua in count) {
-                if (count[ua] >= threshold)
-                    printf "%-40s %7d   %s\n", ua, count[ua], exampleip[ua]
+            for (k in count) {
+                if (count[k] >= threshold) {
+                    split(k, b, "|")
+                    printf "%-18s %7d   %s\n", b[1], count[k], b[2]
+                }
             }
         }' | sort -k2 -nr)
     [[ -z "$results" ]] && results="No data found."
@@ -265,29 +272,167 @@ analyze_wordpress_attacks() {
         echo -e "${RED}No log files found for analysis.${NC}"
         return
     fi
-    echo -e "\n${CYAN}=== WORDPRESS ATTACKS (by User-Agent) ===${NC}"
-    echo -e "${YELLOW}User-Agent                                 Attempts   Example IP${NC}"
-    echo    "--------------------------------------------------------------------------"
+    echo -e "\n${CYAN}=== WORDPRESS ATTACKS (Type, IP, UA) ===${NC}"
+    echo -e "${YELLOW}Type         IP                Requests   Example UA${NC}"
+    echo    "--------------------------------------------------------------------------------------"
     local results
-    results=$(grep -aiE "wp-login|xmlrpc" "${logs[@]}" 2>/dev/null |
+    results=$(grep -aiE "wp-login|xmlrpc|wp-cron|admin-ajax|wp-json" "${logs[@]}" 2>/dev/null |
         awk -F'"' -v threshold="$MIN_THRESHOLD" '
         {
+            split($1, a, " ")
+            ip = a[1]
+            req = $2
             ua = $6
-            split($1, fields, " ")
-            ip = fields[1]
-            count[ua]++
-            exampleip[ua]=ip
+            type = (req ~ /wp-login/) ? "wp-login" :
+                   (req ~ /xmlrpc/) ? "xmlrpc" :
+                   (req ~ /wp-cron/) ? "wp-cron" :
+                   (req ~ /admin-ajax/) ? "admin-ajax" :
+                   (req ~ /wp-json/) ? "wp-json" : "other"
+            key = type "|" ip "|" ua
+            count[key]++
         }
         END {
-            for (ua in count) {
-                if (count[ua] >= threshold)
-                    printf "%-40s %7d   %s\n", ua, count[ua], exampleip[ua]
+            for (k in count) {
+                if (count[k] >= threshold) {
+                    split(k, b, "|")
+                    printf "%-12s %-18s %7d   %s\n", b[1], b[2], count[k], b[3]
+                }
             }
-        }' | sort -k2 -nr)
+        }' | sort -k3 -nr)
     [[ -z "$results" ]] && results="No data found."
     echo "$results"
     save_output "=== WORDPRESS ATTACKS ===\n$results\n"
     echo -e "\n${GREEN}Analysis completed${NC}"
+}
+
+analyze_404_errors() {
+    mapfile -t logs < <(get_time_filtered_logs "$TIME_HOURS")
+    if [[ ${#logs[@]} -eq 0 ]]; then
+        echo -e "${RED}No log files found for analysis.${NC}"
+        return
+    fi
+    echo -e "\n${CYAN}=== 404 ERRORS (by IP, Path) ===${NC}"
+    echo -e "${YELLOW}IP                Requests   Path${NC}"
+    echo    "----------------------------------------------------------------------------"
+    local results
+    results=$(awk '
+        $9 == 404 { ip=$1; req=$7; count[ip "|" req]++ }
+        END {
+            for (k in count)
+                if (count[k] >= ENVIRON["MIN_THRESHOLD"]) {
+                    split(k, b, "|")
+                    printf "%-18s %7d   %s\n", b[1], count[k], b[2]
+                }
+        }' "${logs[@]}" | sort -k2 -nr)
+    [[ -z "$results" ]] && results="No data found."
+    echo "$results"
+    save_output "=== 404 ERRORS ===\n$results\n"
+    echo -e "\n${GREEN}Analysis completed${NC}"
+}
+
+analyze_403_errors() {
+    mapfile -t logs < <(get_time_filtered_logs "$TIME_HOURS")
+    if [[ ${#logs[@]} -eq 0 ]]; then
+        echo -e "${RED}No log files found for analysis.${NC}"
+        return
+    fi
+    echo -e "\n${CYAN}=== 403 ERRORS (by IP, Path) ===${NC}"
+    echo -e "${YELLOW}IP                Requests   Path${NC}"
+    echo    "----------------------------------------------------------------------------"
+    local results
+    results=$(awk '
+        $9 == 403 { ip=$1; req=$7; count[ip "|" req]++ }
+        END {
+            for (k in count)
+                if (count[k] >= ENVIRON["MIN_THRESHOLD"]) {
+                    split(k, b, "|")
+                    printf "%-18s %7d   %s\n", b[1], count[k], b[2]
+                }
+        }' "${logs[@]}" | sort -k2 -nr)
+    [[ -z "$results" ]] && results="No data found."
+    echo "$results"
+    save_output "=== 403 ERRORS ===\n$results\n"
+    echo -e "\n${GREEN}Analysis completed${NC}"
+}
+
+analyze_injection_attempts() {
+    mapfile -t logs < <(get_time_filtered_logs "$TIME_HOURS")
+    if [[ ${#logs[@]} -eq 0 ]]; then
+        echo -e "${RED}No log files found for analysis.${NC}"
+        return
+    fi
+    echo -e "\n${CYAN}=== INJECTION ATTEMPTS ===${NC}"
+    echo -e "${YELLOW}IP                Requests   Path${NC}"
+    echo    "----------------------------------------------------------------------------"
+    local results
+    results=$(grep -aiE "union|select|script|javascript|eval" "${logs[@]}" 2>/dev/null |
+        awk -F'"' '
+        {
+            split($1, a, " ")
+            ip = a[1]
+            req = $2
+            count[ip "|" req]++
+        }
+        END {
+            for (k in count)
+                if (count[k] >= ENVIRON["MIN_THRESHOLD"]) {
+                    split(k, b, "|")
+                    printf "%-18s %7d   %s\n", b[1], count[k], b[2]
+                }
+        }' | sort -k2 -nr)
+    [[ -z "$results" ]] && results="No data found."
+    echo "$results"
+    save_output "=== INJECTION ATTEMPTS ===\n$results\n"
+    echo -e "\n${GREEN}Analysis completed${NC}"
+}
+
+analyze_activity()               { analyze_top_ips; }
+
+analyze_error_log() {
+    echo -e "\n${CYAN}=== ERROR LOG ANALYSIS ===${NC}"
+    if [[ -z "$ERROR_LOG_PATH" ]]; then
+        echo -e "${YELLOW}No error_log path defined. Set it in the menu or with --errorlog <path>.${NC}"
+        return
+    fi
+    if [[ ! -f $ERROR_LOG_PATH ]]; then
+        echo -e "${RED}Error log file not found: $ERROR_LOG_PATH${NC}"
+        return
+    fi
+
+    echo -e "${YELLOW}Top 10 error messages:${NC}"
+    if grep -q '^\[' "$ERROR_LOG_PATH"; then
+        # Apache/Plesk/cPanel style
+        awk -F'[][:]' '
+            {
+                type = $5;
+                sub(/^[ ]+/, "", type);
+                msg = $0;
+                sub(/^\[[^]]+\] \[[^]]+\] \[[^]]+\] /, "", msg);
+                count[type "|" msg]++;
+            }
+            END {
+                for (k in count)
+                    print count[k], k
+            }
+        ' "$ERROR_LOG_PATH" | sort -nr | head -10 | awk -F'|' '{printf "%-5s %-20s %s\n", $1, $2, $3}'
+    else
+        # RunCloud/OpenLiteSpeed style
+        awk '
+            match($0, /\[(ERROR|WARN|NOTICE|INFO)\]/, m) {
+                type = m[1];
+                msg = $0;
+                sub(/^[0-9\-\:\. \[\]]+/, "", msg);
+                gsub(/\[[^]]*\]/, "", msg);
+                sub(/^[ ]+/, "", msg);
+                count[type "|" msg]++;
+            }
+            END {
+                for (k in count)
+                    print count[k], k
+            }
+        ' "$ERROR_LOG_PATH" | sort -nr | head -10 | awk -F'|' '{printf "%-5s %-8s %s\n", $1, $2, $3}'
+    fi
+    echo -e "${GREEN}Analysis completed${NC}"
 }
 
 analyze_all() {
@@ -298,6 +443,9 @@ analyze_all() {
     analyze_404_errors
     analyze_403_errors
     analyze_injection_attempts
+    if [[ -n "$ERROR_LOG_PATH" && -f "$ERROR_LOG_PATH" ]]; then
+        analyze_error_log
+    fi
     echo -e "\n${RED}=== ANALYSIS FINISHED ===${NC}"
 }
 
@@ -313,6 +461,7 @@ if [[ $# -gt 0 ]]; then
                 [[ -z "$2" || ! "$2" =~ ^[0-9]+$ ]] && { echo -e "${RED}Error: invalid value for --hoursago${NC}"; exit 1; }
                 TIME_HOURS="$2"; shift 2 ;;
             --logpath) LOG_PATH="$2"; shift 2 ;;
+            --errorlog) ERROR_LOG_PATH="$2"; shift 2 ;;
             --output) OUTPUT_FILE="$2"; shift 2 ;;
             --save) SAVE_TO_FILE=true; shift ;;
             *) echo -e "${RED}Unknown option: $1${NC}"; echo "Use --help for usage information."; exit 1 ;;
@@ -333,7 +482,9 @@ while true; do
         6) analyze_injection_attempts; pause ;;
         7) analyze_activity; pause ;;
         8) analyze_all; pause ;;
+        9) analyze_error_log; pause ;;
         r|R) change_log_path ;;
+        e|E) change_error_log_path ;;
         s|S) toggle_file_saving ;;
         0|x|X|q|Q)
             [[ "$SAVE_TO_FILE" == true && -f "$OUTPUT_FILE" ]] && echo -e "\n${GREEN}Results saved to: ${CYAN}$OUTPUT_FILE${NC}"
