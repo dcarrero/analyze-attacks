@@ -1,9 +1,9 @@
-#!/usr/bin/env bash
+#!/bin/bash
 # =========================================================================
 # Title:         Analyze Attacks (Consistent & Robust)
 # Description:   Advanced log analysis tool for web server attack detection
 # Author:        David Carrero Fernández-Baillo <dcarrero@stackscale.com>
-# Version:       0.3 beta (English)
+# Version:       0.4 beta (English)
 # Created:       JUNE 3, 2025
 # License:       MIT License
 # =========================================================================
@@ -23,7 +23,6 @@ OUTPUT_FILE="analyze_attacks.log"
 SAVE_TO_FILE=false
 
 shopt -s globstar nullglob 2>/dev/null
-
 trap 'echo -e "\n${RED}Interrupted by user. Exiting.${NC}"; exit 1' SIGINT
 
 # ---- Function Definitions ----
@@ -36,7 +35,7 @@ ${CYAN}=================================
 ${GREEN}Advanced Web Server Security Log Analysis Tool${NC}
 ${YELLOW}Author: David Carrero Fernández-Baillo${NC}
 ${YELLOW}Website: https://carrero.es${NC}
-${YELLOW}Version: 0.3 beta${NC}
+${YELLOW}Version: 0.4 beta${NC}
 
 ${GREEN}USAGE:${NC}
   $0 [OPTIONS]
@@ -243,22 +242,24 @@ analyze_all() {
 }
 
 # ---- Argument Parsing ----
-
-while [[ $# -gt 0 ]]; do
-	case "$1" in
-		--help|-h) show_help ;;
-		--minrequest|--threshold)
-			[[ -z "$2" || ! "$2" =~ ^[0-9]+$ ]] && { echo -e "${RED}Error: invalid value for --minrequest${NC}"; exit 1; }
-			MIN_THRESHOLD="$2"; shift 2 ;;
-		--hoursago|--hours)
-			[[ -z "$2" || ! "$2" =~ ^[0-9]+$ ]] && { echo -e "${RED}Error: invalid value for --hoursago${NC}"; exit 1; }
-			TIME_HOURS="$2"; shift 2 ;;
-		--logpath) LOG_PATH="$2"; shift 2 ;;
-		--output) OUTPUT_FILE="$2"; shift 2 ;;
-		--save) SAVE_TO_FILE=true; shift ;;
-		*) echo -e "${RED}Unknown option: $1${NC}"; echo "Use --help for usage information."; exit 1 ;;
-	esac
-done
+# Only parse arguments if there are any!
+if [[ $# -gt 0 ]]; then
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+			--help|-h) show_help ;;
+			--minrequest|--threshold)
+				[[ -z "$2" || ! "$2" =~ ^[0-9]+$ ]] && { echo -e "${RED}Error: invalid value for --minrequest${NC}"; exit 1; }
+				MIN_THRESHOLD="$2"; shift 2 ;;
+			--hoursago|--hours)
+				[[ -z "$2" || ! "$2" =~ ^[0-9]+$ ]] && { echo -e "${RED}Error: invalid value for --hoursago${NC}"; exit 1; }
+				TIME_HOURS="$2"; shift 2 ;;
+			--logpath) LOG_PATH="$2"; shift 2 ;;
+			--output) OUTPUT_FILE="$2"; shift 2 ;;
+			--save) SAVE_TO_FILE=true; shift ;;
+			*) echo -e "${RED}Unknown option: $1${NC}"; echo "Use --help for usage information."; exit 1 ;;
+		esac
+	done
+fi
 
 # ---- Main Loop ----
 while true; do
