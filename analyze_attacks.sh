@@ -28,27 +28,25 @@ trap 'echo -e "\n${RED}Interrupted by user. Exiting.${NC}"; exit 1' SIGINT
 # ---- Function Definitions ----
 
 show_help() {
-cat <<EOF
-${CYAN}=================================
-        ANALYZE ATTACKS
-=================================${NC}
-${GREEN}Advanced Web Server Security Log Analysis Tool${NC}
-${YELLOW}Author: David Carrero Fernández-Baillo${NC}
-${YELLOW}Website: https://carrero.es${NC}
-${YELLOW}Version: 0.4 beta${NC}
-
-${GREEN}USAGE:${NC}
-  $0 [OPTIONS]
-
-${GREEN}OPTIONS:${NC}
-  --help, -h              Show this help message
-  --minrequest <number>   Minimum requests (default: 20)
-  --hoursago <number>     Hours back to analyze (default: 24)
-  --logpath <path>        Custom log path (use quotes if spaces)
-  --output <filename>     Output file
-  --save                  Save results to file
-EOF
-exit 0
+    printf "%b\n" "${CYAN}================================="
+    printf "%b\n" "        ANALYZE ATTACKS"
+    printf "%b\n" "=================================${NC}"
+    printf "%b\n" "${GREEN}Advanced Web Server Security Log Analysis Tool${NC}"
+    printf "%b\n" "${YELLOW}Author: David Carrero Fernández-Baillo${NC}"
+    printf "%b\n" "${YELLOW}Website: https://carrero.es${NC}"
+    printf "%b\n" "${YELLOW}Version: 0.4 beta${NC}"
+    printf "\n"
+    printf "%b\n" "${GREEN}USAGE:${NC}"
+    printf "%b\n" "  $0 [OPTIONS]"
+    printf "\n"
+    printf "%b\n" "${GREEN}OPTIONS:${NC}"
+    printf "%b\n" "  --help, -h              Show this help message"
+    printf "%b\n" "  --minrequest <number>   Minimum requests (default: 20)"
+    printf "%b\n" "  --hoursago <number>     Hours back to analyze (default: 24)"
+    printf "%b\n" "  --logpath <path>        Custom log path (use quotes if spaces)"
+    printf "%b\n" "  --output <filename>     Output file"
+    printf "%b\n" "  --save                  Save results to file"
+    exit 0
 }
 
 save_output() {
