@@ -21,7 +21,7 @@ NC=$'\e[0m'
 MIN_THRESHOLD=20
 TIME_HOURS=24
 LOG_PATH="/home/*/logs/*access*.log"
-ERROR_LOG_PATH=""
+ERROR_LOG_PATH="/home/*/logs/*error*.log"
 OUTPUT_FILE="analyze_attacks.log"
 SAVE_TO_FILE=false
 
