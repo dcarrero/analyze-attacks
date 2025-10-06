@@ -46,7 +46,7 @@ show_help() {
     printf "%b\n" "${GREEN}Advanced Web Server Security Log Analysis Tool${NC}"
     printf "%b\n" "${YELLOW}Author: David Carrero Fernández-Baillo${NC}"
     printf "%b\n" "${YELLOW}Website: https://carrero.es${NC}"
-    printf "%b\n" "${YELLOW}Version: 0.9 beta${NC}"
+    printf "%b\n" "${YELLOW}Version: 0.92 beta${NC}"
     printf "\n"
     printf "%b\n" "${GREEN}USAGE:${NC}"
     printf "%b\n" "  $0 [OPTIONS]"
@@ -232,7 +232,7 @@ analyze_top_ips() {
     echo -e "${YELLOW}IP                Requests   Example User-Agent${NC}"
     echo    "----------------------------------------------------------------------------"
     local results
-    results=$(awk -F'"' '
+    results=$(awk -F'"' -v threshold="$MIN_THRESHOLD" '
         {
             split($1, a, " ")
             ip = a[1]
@@ -243,7 +243,7 @@ analyze_top_ips() {
         }
         END {
             for (k in count)
-                if (count[k] >= ENVIRON["MIN_THRESHOLD"]) {
+                if (count[k] >= threshold) {
                     split(k, b, "|")
                     printf "%-18s %7d   %s\n", b[1], count[k], b[2]
                 }
@@ -338,7 +338,7 @@ analyze_404_errors() {
     echo -e "${YELLOW}IP                Requests   Unique URLs   Example URL${NC}"
     echo    "----------------------------------------------------------------------------"
     local results
-    results=$(awk '
+    results=$(awk -v threshold="$MIN_THRESHOLD" '
         $9 == 404 && $1 ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ {
             ip = $1
             url = $7
@@ -348,7 +348,7 @@ analyze_404_errors() {
         }
         END {
             for (ip in count)
-                if (count[ip] >= ENVIRON["MIN_THRESHOLD"]) {
+                if (count[ip] >= threshold) {
                     n_url = length(unique_url[ip])
                     printf "%-18s %7d   %11d   %s\n", ip, count[ip], n_url, example_url[ip]
                 }
@@ -369,7 +369,7 @@ analyze_403_errors() {
     echo -e "${YELLOW}IP                Requests   Unique URLs   Example URL${NC}"
     echo    "----------------------------------------------------------------------------"
     local results
-    results=$(awk '
+    results=$(awk -v threshold="$MIN_THRESHOLD" '
         $9 == 403 && $1 ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ {
             ip = $1
             url = $7
@@ -379,7 +379,7 @@ analyze_403_errors() {
         }
         END {
             for (ip in count)
-                if (count[ip] >= ENVIRON["MIN_THRESHOLD"]) {
+                if (count[ip] >= threshold) {
                     n_url = length(unique_url[ip])
                     printf "%-18s %7d   %11d   %s\n", ip, count[ip], n_url, example_url[ip]
                 }
@@ -401,7 +401,7 @@ analyze_injection_attempts() {
     echo    "----------------------------------------------------------------------------"
     local results
     results=$(grep -aiE "union|select|script|javascript|eval" "${logs[@]}" 2>/dev/null |
-        awk -F'"' '
+        awk -F'"' -v threshold="$MIN_THRESHOLD" '
         {
             split($1, a, " ")
             ip = a[1]
@@ -410,7 +410,7 @@ analyze_injection_attempts() {
         }
         END {
             for (k in count)
-                if (count[k] >= ENVIRON["MIN_THRESHOLD"]) {
+                if (count[k] >= threshold) {
                     split(k, b, "|")
                     printf "%-18s %7d   %s\n", b[1], count[k], b[2]
                 }
